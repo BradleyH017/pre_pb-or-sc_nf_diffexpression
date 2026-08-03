@@ -1,9 +1,9 @@
 experiment_key_column:
     description: 'Column used to group samples to make pseudobulk.'
-    value: 'experiment_id'
+    value: 'pool_participant'
 anndata_cell_label:
     description: 'Anndata cell label column in obs slot.'
-    value: 'cluster'
+    value: 'Celltypist:IBDverse_eqtl:predicted_labels'
 differential_expression:
     run_process: true
     models:
@@ -12,39 +12,21 @@ differential_expression:
                 variable_continuous or variable_discrete.'
         mean_cp10k_filter: 1
         value:
-            - method: ''
-              formula: '~ '
-              variable_target: ''
-              variable_continuous: ''
+            - method: 'edger::pseudobulk::glmQLFit'
+              formula: '~ C1_clr'
+              variable_target: 'C1_clr'
+              variable_continuous: 'C1_clr'
               variable_discrete: ''
               variable_discrete_level: ''
               pre_filter_genes: true
-              proportion_covariate_column: 'cluster'
+              proportion_covariate_column: 'Celltypist:IBDverse_eqtl:predicted_labels'
               include_proportion_covariates: true
-            - method: ''
-              formula: '~ '
-              variable_target: ''
-              variable_continuous: ''
-              variable_discrete: ''
-              variable_discrete_level: ''
-              pre_filter_genes: false
-              proportion_covariate_column: 'cluster'
-              include_proportion_covariates: true
-            - method: ''
-              formula: '~ '
-              variable_target: ''
-              variable_continuous: ''
-              variable_discrete: ''
-              variable_discrete_level: ''
-              pre_filter_genes: true
-              proportion_covariate_column: 'cluster'
-              include_proportion_covariates: false
     de_merge_config:
         ihw_correction:
-            run_process: false
+            run_process: true
             description: 'Run IHW to correct differential expression results.'
             value:
-                covariates: ''
+                covariates: 'cell_label,coef_value'
                 alpha: 0.1
     de_plot_config:
         mean_expression_filter:
@@ -66,3 +48,4 @@ differential_expression:
               max_set_size: Inf
               eps: 0
               database: 'c2.cp.reactome,c2.cp.kegg,c5.bp,c5.cc,c5.mf'
+    

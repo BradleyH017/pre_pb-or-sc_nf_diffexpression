@@ -73,6 +73,7 @@ process run_differential_expression {
             optional: true,
             emit: results
         )
+        path("${outfile}_pseudobulk_counts.tsv.gz") optional true
         path("plots/*.png") optional true
         path("plots/*.pdf") optional true
 
