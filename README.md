@@ -1,7 +1,9 @@
 
 # Description
 
-This pipeline performs differential gene expression and gene set enrichment in droplet single cell RNA-seq. As input, this pipeline takes an H5AD single cell experiment, modeled after the output of the complimentary pipeline [nf_scrna_qc](https://github.com/wtsi-hgi/nf_scrna_qc).
+This pipeline performs differential gene expression and gene set enrichment in droplet single cell RNA-seq. As input, this pipeline takes an H5AD single cell experiment, or a pre-pseudobulked h5ad (more convenient if testing many different contrasts while correcting for the same set of covariates). An example of how to construct the pseudobulk h5ad can be found in `bin/make_pseudobulk_adata.py`. 
+
+NOTE: All constrasts / covariates must be present in the .obs of the H5AD, and if testing multiple contrasts against a core set of covariates, these can be supplied via the `target_variable_list_file` `.txt` file - one per line, '#' lines are ignored.
 
 For differential gene expression, we support the following packages:
 1. [MAST](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-015-0844-5)
