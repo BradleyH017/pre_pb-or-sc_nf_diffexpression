@@ -1,26 +1,53 @@
 experiment_key_column:
     description: 'Column used to group samples to make pseudobulk.'
-    value: 'pool_participant'
+    value: 'pseudo_sample'
 anndata_cell_label:
     description: 'Anndata cell label column in obs slot.'
-    value: 'Celltypist:IBDverse_eqtl:predicted_labels'
+    value: 'Category'
 differential_expression:
     run_process: true
+    # If false, skip all diagnostic/comparison plotting steps (per-model DGE
+    # plots, merged DGE plots, and merged GSEA plots) and only run
+    # differential expression, merging, and GSEA.
+    run_plots: false
+    target_variable_placeholder:
+        description: 'Token used in models.value formula/variable_target/
+            variable_continuous/variable_discrete fields to mark where a
+            target variable name should be substituted. Any model containing
+            this token will be expanded into one model per line listed in
+            target_variable_list_file, with the token replaced by that
+            target variable name.'
+        value: 'TARGET_VARIABLE'
+    target_variable_list_file:
+        description: 'Path to a text file with one target variable name per
+            line (e.g., C1_clr, C2_clr, ...). Each model in models.value
+            that contains target_variable_placeholder is run once per line
+            in this file. Set value to "" to disable expansion and run
+            models.value exactly as specified.'
+        value: 'temp/target_variable_list.txt'
     models:
         description: 'List of differential formula and params.
             All covariates in formula should be listed in either
                 variable_continuous or variable_discrete.'
-        mean_cp10k_filter: 1
+        mean_cp10k_filter: 0.01
+        bulk_or_singlecell: 'bulk' # 'single_cell' or 'bulk'. If
+            # 'bulk', run_differential_expression_bulk is used instead of
+            # run_differential_expression: in addition to the mean_cp10k_filter
+            # cutoff above, genes are only retained if they have counts >
+            # bulk_count_threshold in at least sample_frac_threshold
+            # proportion of samples.
+        bulk_count_threshold: 5 # only used if bulk_or_singlecell == 'bulk'
+        sample_frac_threshold: 0.2 # only used if bulk_or_singlecell == 'bulk'
         value:
-            - method: 'edger::pseudobulk::glmQLFit'
-              formula: '~ C1_clr'
-              variable_target: 'C1_clr'
-              variable_continuous: 'C1_clr'
-              variable_discrete: ''
-              variable_discrete_level: ''
+            - method: 'deseq::pseudobulk::glmGamPoi'  # for psudobuled data
+              formula: '~ TARGET_VARIABLE + sex + age + n_genes_by_counts + pct_counts_gene_group__mito_transcript'
+              variable_target: 'TARGET_VARIABLE' # for the main explanatory variable that we want to test the effect of
+              variable_continuous: 'age,n_genes_by_counts,pct_counts_gene_group__mito_transcript'
+              variable_discrete: 'TARGET_VARIABLE,sex'
+              variable_discrete_level: 'TARGET_VARIABLE::0,1;;sex::M,F' # specify the levels of discrete variables to use for the model
               pre_filter_genes: true
-              proportion_covariate_column: 'Celltypist:IBDverse_eqtl:predicted_labels'
-              include_proportion_covariates: true
+              proportion_covariate_column: 'Category'
+              include_proportion_covariates: false
     de_merge_config:
         ihw_correction:
             run_process: true

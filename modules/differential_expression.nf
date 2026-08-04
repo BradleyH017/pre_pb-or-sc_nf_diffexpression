@@ -186,6 +186,161 @@ process run_differential_expression {
 }
 
 
+process run_differential_expression_bulk {
+    // Run differential expression on pre-summed bulk/pseudobulk data:
+    // same as run_differential_expression, but also drops genes that are
+    // not detected (counts > bulk_count_threshold) in at least
+    // sample_frac_threshold proportion of samples.
+    // ------------------------------------------------------------------------
+    label 'long_job'
+    scratch false        // use tmp directory
+    echo echo_mode       // echo output from script
+
+    publishDir  path: "${outdir}",
+                saveAs: {filename -> filename.replaceAll("${runid}-", "")},
+                mode: "${task.publish_mode}",
+                overwrite: "true"
+
+    input:
+        val(outdir_prev)
+        path(anndata)
+        val(cell_label_column)
+        val(experiment_id)
+        val(mean_cp10k_filter)
+        val(bulk_count_threshold)
+        val(sample_frac_threshold)
+        each cell_label
+        each model
+
+    output:
+        val(outdir, emit: outdir)
+        tuple(
+            val(runid), //need random hex to control grouping
+            val(variable_target),
+            val(cell_label),
+            val(formula_clean),
+            val(model.method),
+            path("${outfile}_unfiltered-de_results.tsv.gz"),
+            path("${outfile}_filtered-de_results.tsv.gz"),
+            val(outdir),
+            optional: true,
+            emit: results
+        )
+        path("${outfile}_pseudobulk_counts.tsv.gz") optional true
+        path("plots/*.png") optional true
+        path("plots/*.pdf") optional true
+
+    script:
+        runid = random_hex(16)
+        // on first call, cell_label comes in array-format. Need to check if
+        // list because Nextflow has terrible retry behavior where it passes
+        // as string on second call
+        cell_label = cell_label instanceof List ? cell_label[0] : cell_label
+        prop_cov_col = model.proportion_covariate_column
+        formula = "${model.formula}"
+        formula_clean = "${model.formula}".replaceAll("_", "")
+        formula_clean = "${formula_clean}".replaceAll(" ", "_")
+        formula_clean = "${formula_clean}".replaceAll("~", "")
+        formula_clean = "${formula_clean}".replaceAll("\\+", "_plus_")
+        formula_clean = "${formula_clean}".replaceAll("_", "")
+        formula_clean = "${formula_clean}".replaceAll("\\)", "")
+        formula_clean = "${formula_clean}".replaceAll("\\(.*\\|", "ra_")
+        formula_clean = "${formula_clean}".replaceAll("I\\(", "")
+        formula_clean = "${formula_clean}".replaceAll("\\^", "power")
+        formula_clean = "${formula_clean}".replaceAll("\\.", "pt")
+        formula_clean = "${formula_clean}".replaceAll("\\/", "_div_")
+        variable_target = "${model.variable_target}"
+        variable_target_clean = "${model.variable_target}".replaceAll(
+            "\\)", ""
+        )
+        variable_target_clean = "${variable_target_clean}".replaceAll(
+            "I\\(", ""
+        )
+        variable_target_clean = "${variable_target_clean}".replaceAll(
+            "\\^", "power"
+        )
+        variable_target_clean = "${variable_target_clean}".replaceAll(
+            "\\.", "pt"
+        )
+        // Get optional flags and add to formula if needed
+        cmd__options = ""
+        if (model.pre_filter_genes) {
+            cmd__options = "--pre_filter_genes"
+        }
+        if (model.include_proportion_covariates) {
+            cmd__options = "${cmd__options} --include_proportion_covariates"
+            formula_clean = "${formula_clean}__proportion_covs-${prop_cov_col}"
+        }
+        outdir = "${outdir_prev}/differential_expression/${variable_target_clean}"
+        outdir = "${outdir}/cell_label=${cell_label}"
+        outdir = "${outdir}/method=${model.method}___formula=${formula_clean}"
+        // Sort out any variables that need to be cast
+        cmd__varcast = ""
+        if (model.variable_discrete != "") {  // add disc cov call
+            cmd__varcast = "${cmd__varcast} --discrete_variables \"${model.variable_discrete}\""
+        }
+        if (model.variable_continuous != "") {  // add contin cov call
+            cmd__varcast = "${cmd__varcast} --continuous_variables \"${model.variable_continuous}\""
+        }
+        // Make discrete levels command
+        cmd__levels = ""
+        if (model.variable_discrete_level != "") {  // add disc cov call
+            cmd__levels = "--discrete_levels \"${model.variable_discrete_level}\""
+        }
+        outfile = "cell_label__${cell_label}"
+        // Finally get the correct script
+        base_method = model.method.split("::")[0]
+        if (base_method == "edger") {
+            method_script = "011-run_edger.R"
+        } else if (base_method == "deseq") {
+            method_script = "011-run_deseq.R"
+        } else if (base_method == "mast") {
+            method_script = "011-run_mast.R"
+        }
+        // Details on process
+        process_info = "${runid} (runid)"
+        process_info = "${process_info}, ${task.cpus} (cpus)"
+        process_info = "${process_info}, ${task.memory} (memory)"
+        """
+        echo "run_differential_expression_bulk: ${process_info}"
+        echo "publish_directory: ${outdir}"
+        rm -fr plots
+        generate_experiment_covariates.py \
+            --h5_anndata ${anndata} \
+            --experiment_id "${experiment_id}" \
+            --proportion_covariate_column "${prop_cov_col}" \
+            --out_file tmp_anndata.h5ad
+        convert_h5ad_R.py \
+            --h5ad_file tmp_anndata.h5ad \
+            --variable_target "${variable_target}" \
+            --cell_label_column "${cell_label_column}" \
+            --cell_label "${cell_label}" \
+            --output_dir de_input
+        011-run_differential_expression_bulk.R \
+            --input_dir de_input \
+            --cell_label_column "${cell_label_column}" \
+            --cell_label "${cell_label}" \
+            --experiment_key "${experiment_id}" \
+            --formula "${model.formula}" \
+            --variable_target "${variable_target}" \
+            --method "${model.method}" \
+            --method_script $baseDir/bin/${method_script} \
+            --mean_cp10k_filter ${mean_cp10k_filter} \
+            --bulk_count_threshold ${bulk_count_threshold} \
+            --sample_frac_threshold ${sample_frac_threshold} \
+            --out_file "${outfile}" \
+            --cores_available ${task.cpus} \
+            ${cmd__varcast} \
+            ${cmd__levels} \
+            ${cmd__options}
+        mkdir plots
+        mv *pdf plots/ 2>/dev/null || true
+        mv *png plots/ 2>/dev/null || true
+        rm tmp_anndata.h5ad
+        """
+}
+
+
 process plot_dge_results {
     // Plot DGE results
     // ------------------------------------------------------------------------
@@ -656,6 +811,7 @@ workflow wf__differential_expression {
         de_merge_config
         de_plot_config
         fgsea_config
+        run_plots
     main:
         // Get a list of all of the cell types
         get_cell_label_list(
@@ -671,23 +827,40 @@ workflow wf__differential_expression {
             // )}
 
         // Run DGE
-        run_differential_expression(
-            outdir,
-            anndata,
-            anndata_cell_label,
-            experiment_key,
-            model.mean_cp10k_filter,
-            // '1',  // just run on first cluster for development
-            cell_labels,  // run for all clusters for run time
-            model.value
-        )
-
-        de_results = run_differential_expression.out.results
+        if (model.bulk_or_singlecell == "bulk") {
+            run_differential_expression_bulk(
+                outdir,
+                anndata,
+                anndata_cell_label,
+                experiment_key,
+                model.mean_cp10k_filter,
+                model.bulk_count_threshold,
+                model.sample_frac_threshold,
+                // '1',  // just run on first cluster for development
+                cell_labels,  // run for all clusters for run time
+                model.value
+            )
+            de_results = run_differential_expression_bulk.out.results
+        } else {
+            run_differential_expression(
+                outdir,
+                anndata,
+                anndata_cell_label,
+                experiment_key,
+                model.mean_cp10k_filter,
+                // '1',  // just run on first cluster for development
+                cell_labels,  // run for all clusters for run time
+                model.value
+            )
+            de_results = run_differential_expression.out.results
+        }
 
         // Plot results from each DGE run
-        plot_dge_results(
-            de_results
-        )
+        if (run_plots) {
+            plot_dge_results(
+                de_results
+            )
+        }
 
         // Serialize input files to prep for merge
         serialize_de_files(
@@ -731,11 +904,13 @@ workflow wf__differential_expression {
             de_results_merged
         )
         // Basic plots of the differential expression results across all models
-        plot_merged_dge(
-            outdir,
-            merge_de_dataframes.out.merged_results,
-            de_plot_config.mean_expression_filter.value
-        )
+        if (run_plots) {
+            plot_merged_dge(
+                outdir,
+                merge_de_dataframes.out.merged_results,
+                de_plot_config.mean_expression_filter.value
+            )
+        }
 
         // Run fGSEA on DE results
         if (fgsea_config.run_process) {
@@ -797,10 +972,12 @@ workflow wf__differential_expression {
             )
 
             // Basic plots of the GSEA results across all models
-            plot_gsea_results(
-                outdir,
-                merge_gsea_dataframes.out.merged_results
-            )
+            if (run_plots) {
+                plot_gsea_results(
+                    outdir,
+                    merge_gsea_dataframes.out.merged_results
+                )
+            }
         }
 
     emit:
