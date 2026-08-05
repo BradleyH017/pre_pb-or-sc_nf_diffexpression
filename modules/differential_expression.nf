@@ -74,6 +74,7 @@ process run_differential_expression {
             emit: results
         )
         path("${outfile}_pseudobulk_counts.tsv.gz") optional true
+        path("${outfile}_pseudobulk_log1p_cp10k.tsv.gz") optional true
         path("plots/*.png") optional true
         path("plots/*.pdf") optional true
 
@@ -227,6 +228,7 @@ process run_differential_expression_bulk {
             emit: results
         )
         path("${outfile}_pseudobulk_counts.tsv.gz") optional true
+        path("${outfile}_pseudobulk_log1p_cp10k.tsv.gz") optional true
         path("plots/*.png") optional true
         path("plots/*.pdf") optional true
 

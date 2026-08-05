@@ -690,6 +690,14 @@ if (pseudobulk == "pseudobulk") {
     gzfile(pseudobulk_outfile),
     sep="\t", quote=FALSE, col.names=NA
   )
+  pseudobulk_logcp10k_outfile <- paste0(
+    arguments$options$out_file, "_pseudobulk_log1p_cp10k.tsv.gz"
+  )
+  write.table(
+    logcp10_matrix,
+    gzfile(pseudobulk_logcp10k_outfile),
+    sep="\t", quote=FALSE, col.names=NA
+  )
 } else {
   # Mean impute continuous_covs per cell
   metadata <- mean_impute_nan_numeric(metadata, continuous_covs)
