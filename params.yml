@@ -1,9 +1,9 @@
 experiment_key_column:
     description: 'Column used to group samples to make pseudobulk.'
-    value: 'pseudo_sample'
+    value: 'pool_participant'
 anndata_cell_label:
     description: 'Anndata cell label column in obs slot.'
-    value: 'Category'
+    value: 'IBDverse_eqtl:Category'
 differential_expression:
     run_process: true
     # If false, skip all diagnostic/comparison plotting steps (per-model DGE
@@ -25,12 +25,27 @@ differential_expression:
             in this file. Set value to "" to disable expansion and run
             models.value exactly as specified.'
         value: 'temp/target_variable_list.txt'
+    target_x_model_matrix:
+        description: 'Path to a tab-separated file with two columns and no
+            header: target variable name, and the covariate terms (joined
+            by " + ", optionally wrapped in double quotes, e.g. as produced
+            by archetype_x_model2.txt) to use as that target variable
+            formula right-hand side. If set (non-empty), this takes
+            precedence over target_variable_list_file: each row expands any
+            model in models.value that contains target_variable_placeholder
+            into one model per row, with variable_target/
+            variable_continuous/variable_discrete/variable_discrete_level
+            substituted as usual, but with formula replaced entirely by
+            "~ " followed by that row covariate terms (instead of
+            substituting the placeholder into models.value.formula). Set
+            value to "" to disable and fall back to target_variable_list_file.'
+        value: '/lustre/scratch125/humgen/projects_v2/ibdresponse/analysis/bradley_analysis/archetypal_analysis_from_mrvi/results/objects/archetype_x_model2.txt'
     models:
         description: 'List of differential formula and params.
             All covariates in formula should be listed in either
                 variable_continuous or variable_discrete.'
-        mean_cp10k_filter: 0.01
-        bulk_or_singlecell: 'bulk' # 'single_cell' or 'bulk'. If
+        mean_cp10k_filter: 1
+        bulk_or_singlecell: 'single_cell' # 'single_cell' or 'bulk'. If
             # 'bulk', run_differential_expression_bulk is used instead of
             # run_differential_expression: in addition to the mean_cp10k_filter
             # cutoff above, genes are only retained if they have counts >
@@ -39,14 +54,14 @@ differential_expression:
         bulk_count_threshold: 5 # only used if bulk_or_singlecell == 'bulk'
         sample_frac_threshold: 0.2 # only used if bulk_or_singlecell == 'bulk'
         value:
-            - method: 'deseq::pseudobulk::glmGamPoi'  # for psudobuled data
-              formula: '~ TARGET_VARIABLE + sex + age + n_genes_by_counts + pct_counts_gene_group__mito_transcript'
+            - method: 'mast::singlecell::glmer'  # for psudobuled data
+              formula: '~ TARGET_VARIABLE' # ignored/overridden per row when target_x_model_matrix is set (see above); used as-is otherwise
               variable_target: 'TARGET_VARIABLE' # for the main explanatory variable that we want to test the effect of
-              variable_continuous: 'age,n_genes_by_counts,pct_counts_gene_group__mito_transcript'
-              variable_discrete: 'TARGET_VARIABLE,sex'
-              variable_discrete_level: 'TARGET_VARIABLE::0,1;;sex::M,F' # specify the levels of discrete variables to use for the model
+              variable_continuous: 'A1_clr_pca,A2_clr_pca,A3_clr_pca,A4_clr_pca,B1_clr_pca,B2_clr_pca,B3_clr_pca,C1_clr_pca,C2_clr_pca,C3_clr_pca,D1_clr_pca,D2_clr_pca,D3_clr_pca,D4_clr_pca,D5_clr_pca,D6_clr_pca,E1_clr_pca,E2_clr_pca,collection_to_shipment,collection_to_wetlab,nCells,num_samples_in_pool,receipt_to_processing,samp_median_mt_perc,samp_median_total_counts,shipment_to_wetlab' # covers every archetype PC + shared numeric covariate that appears in any row of target_x_model_matrix
+              variable_discrete: 'is_pooled,processed_same_day'
+              variable_discrete_level: 'is_pooled::False,True;;processed_same_day::False,True' # values are stored as literal True/False strings, not R TRUE/FALSE
               pre_filter_genes: true
-              proportion_covariate_column: 'Category'
+              proportion_covariate_column: 'IBDverse_eqtl:Category'
               include_proportion_covariates: false
     de_merge_config:
         ihw_correction:

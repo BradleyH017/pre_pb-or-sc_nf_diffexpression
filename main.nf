@@ -52,6 +52,50 @@ def expand_models_with_target_variables(models, target_variables, placeholder) {
 }
 
 
+// Read a tab-separated, headerless target_variable -> formula-terms matrix.
+// Column 2 may be wrapped in double quotes; these are stripped. Returns a
+// list of [target_variable, formula_terms] pairs.
+def read_target_x_model_matrix(file_path) {
+    return file(file_path)
+        .readLines()
+        .collect { it.trim() }
+        .findAll { it != "" && !it.startsWith("#") }
+        .collect { line ->
+            def cols = line.split("\t", 2)
+            def target_variable = cols[0].trim()
+            def formula_terms = cols[1].trim().replaceAll('^"|"$', "")
+            return [target_variable, formula_terms]
+        }
+}
+
+
+// Like expand_models_with_target_variables, but each target variable gets
+// its own formula (taken from target_x_model_rows) instead of substituting
+// placeholder into the model's shared formula field.
+def expand_models_with_target_x_model_matrix(models, target_x_model_rows, placeholder) {
+    def expanded = []
+    models.each { model ->
+        def uses_placeholder = model.any { key, value ->
+            value instanceof String && value.contains(placeholder)
+        }
+        if (uses_placeholder) {
+            target_x_model_rows.each { row ->
+                def target_variable = row[0]
+                def formula_terms = row[1]
+                def new_model = model.collectEntries { key, value ->
+                    [key, value instanceof String ? value.replace(placeholder, target_variable) : value]
+                }
+                new_model.formula = "~ ${formula_terms}"
+                expanded.add(new_model)
+            }
+        } else {
+            expanded.add(model)
+        }
+    }
+    return expanded
+}
+
+
 // Define the help messsage.
 def help_message() {
     log.info """
@@ -105,14 +149,27 @@ workflow {
     main:
         // Run differential expression analysis
         if (params.differential_expression.run_process) {
-            // If a target_variable_list_file is provided, expand any model
-            // containing target_variable_placeholder into one model per
-            // target variable listed in that file.
+            // If target_x_model_matrix is provided, it takes precedence:
+            // expand any model containing target_variable_placeholder into
+            // one model per row, each with its own formula. Otherwise, if
+            // target_variable_list_file is provided, expand using the
+            // shared formula in models.value, one model per listed target
+            // variable.
             de_models = params.differential_expression.models
+            placeholder = params.differential_expression.target_variable_placeholder.value
+            target_x_model_matrix = params.differential_expression.target_x_model_matrix?.value
             target_variable_list_file = params.differential_expression.target_variable_list_file?.value
-            if (target_variable_list_file) {
+            if (target_x_model_matrix) {
+                target_x_model_rows = read_target_x_model_matrix(target_x_model_matrix)
+                de_models = de_models + [
+                    value: expand_models_with_target_x_model_matrix(
+                        de_models.value,
+                        target_x_model_rows,
+                        placeholder
+                    )
+                ]
+            } else if (target_variable_list_file) {
                 target_variables = read_target_variable_list(target_variable_list_file)
-                placeholder = params.differential_expression.target_variable_placeholder.value
                 de_models = de_models + [
                     value: expand_models_with_target_variables(
                         de_models.value,
