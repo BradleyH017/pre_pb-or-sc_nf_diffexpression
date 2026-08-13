@@ -217,8 +217,12 @@ def main():
         '-target', '--variable_target',
         action='store',
         dest='target',
-        required=True,
-        help='Column to test.'
+        default=None,
+        help='Column to test. If not provided, the "only 1 condition" '
+             'validation check below is skipped (e.g. when preparing '
+             'expression matrices independently of a specific target '
+             'variable/model -- the equivalent check is instead performed '
+             'per-model downstream, in the differential expression step).'
     )
 
     parser.add_argument(
@@ -258,7 +262,7 @@ def main():
         adata = adata[adata.obs[options.cl_col].isin(cell_label)]
 
     # Check to see if only one condition exists
-    if not is_interaction(options.target):
+    if options.target is not None and not is_interaction(options.target):
         if adata.obs[options.target].dtype.name == 'category' and len(
                 np.unique(adata.obs[options.target].cat.codes)) <= 1:
             raise Exception('There is only 1 condition.')

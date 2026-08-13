@@ -130,6 +130,22 @@ ihw_correct <- function(
   return(rez)
 }
 
+# Shorten an arbitrarily long grouping label into a filesystem-safe,
+# collision-resistant identifier: a short, sanitised prefix plus an
+# md5-based suffix, so distinct groupings can never collide after
+# truncation. Needed because the grouping label embeds the full covariate
+# formula string, which can otherwise exceed the filesystem's ~255
+# character filename limit once combined with plot/file suffixes.
+short_grouping_id <- function(x, max_prefix = 60) {
+  safe   <- gsub("[^A-Za-z0-9_.-]", "_", x)
+  prefix <- substr(safe, 1, max_prefix)
+  tf     <- tempfile()
+  writeLines(x, tf)
+  digest <- substr(tools::md5sum(tf), 1, 10)
+  unlink(tf)
+  sprintf("%s__%s", prefix, digest)
+}
+
 plot_cov_qc <- function(
     df,
     pval = "pvalue",
@@ -231,7 +247,9 @@ corrected_list <- de_results %>%
   dplyr::group_split() %>%
   lapply(., function(x) {
     grouping <- unique(x[, groupings])
-    grouping_str <- gsub("/", "_div_", paste(grouping, collapse="__"))
+    grouping_str <- short_grouping_id(
+      gsub("/", "_div_", paste(grouping, collapse="__"))
+    )
     if (verbose) {
       print(sprintf(
         "Correcting values for grouping: %s...",

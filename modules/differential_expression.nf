@@ -38,6 +38,79 @@ process get_cell_label_list {
 }
 
 
+process add_experiment_covariates {
+    // Compute per-experiment proportion covariates once for the whole run.
+    // generate_experiment_covariates.py does not depend on cell_label or on
+    // any particular model/target variable -- it operates on every cell and
+    // every cell label in the anndata regardless of what will later be
+    // subset out or tested. Previously this was repeated once per
+    // (cell_label x model) combination; now it runs exactly once.
+    // ------------------------------------------------------------------------
+    label 'long_job'
+    scratch false        // use tmp directory
+    echo echo_mode       // echo output from script
+
+    input:
+        path(anndata)
+        val(experiment_id)
+        val(proportion_covariate_column)
+
+    output:
+        path("tmp_anndata.h5ad", emit: anndata)
+
+    script:
+        process_info = "${task.cpus} (cpus), ${task.memory} (memory)"
+        """
+        echo "add_experiment_covariates: ${process_info}"
+        generate_experiment_covariates.py \
+            --h5_anndata ${anndata} \
+            --experiment_id "${experiment_id}" \
+            --proportion_covariate_column "${proportion_covariate_column}" \
+            --out_file tmp_anndata.h5ad
+        """
+}
+
+
+process prep_expression {
+    // Build the per-cell-type expression matrices (counts, cp10k,
+    // log1p_cp10k) once per cell type. convert_h5ad_R.py's output only
+    // depends on cell_label, not on the target variable/model. Previously
+    // this was repeated once per (cell_label x model) combination; now it
+    // runs once per cell_label.
+    // ------------------------------------------------------------------------
+    label 'long_job'
+    scratch false        // use tmp directory
+    echo echo_mode       // echo output from script
+
+    input:
+        path(anndata)
+        val(cell_label_column)
+        each cell_label
+
+    output:
+        tuple(
+            val(cell_label),
+            path("de_input"),
+            emit: de_input
+        )
+
+    script:
+        // on first call, cell_label comes in array-format. Need to check if
+        // list because Nextflow has terrible retry behavior where it passes
+        // as string on second call
+        cell_label = cell_label instanceof List ? cell_label[0] : cell_label
+        process_info = "${task.cpus} (cpus), ${task.memory} (memory)"
+        """
+        echo "prep_expression: ${process_info}"
+        convert_h5ad_R.py \
+            --h5ad_file ${anndata} \
+            --cell_label_column "${cell_label_column}" \
+            --cell_label "${cell_label}" \
+            --output_dir de_input
+        """
+}
+
+
 process run_differential_expression {
     // Run differential expression
     // ------------------------------------------------------------------------
@@ -52,12 +125,10 @@ process run_differential_expression {
 
     input:
         val(outdir_prev)
-        path(anndata)
         val(cell_label_column)
         val(experiment_id)
         val(mean_cp10k_filter)
-        each cell_label
-        each model
+        tuple(val(cell_label), path(de_input), val(model))
 
     output:
         val(outdir, emit: outdir)
@@ -121,7 +192,12 @@ process run_differential_expression {
         }
         outdir = "${outdir_prev}/differential_expression/${variable_target_clean}"
         outdir = "${outdir}/cell_label=${cell_label}"
-        outdir = "${outdir}/method=${model.method}___formula=${formula_clean}"
+        // NOTE: deliberately not including formula_clean here -- for models
+        // expanded from target_x_model_matrix, the formula string contains
+        // every covariate name concatenated together and can exceed the
+        // filesystem's max filename length (target_variable, already in
+        // the outdir path above, is what actually distinguishes each run).
+        outdir = "${outdir}/method=${model.method}"
         // Sort out any variables that need to be cast
         cmd__varcast = ""
         if (model.variable_discrete != "") {  // add disc cov call
@@ -153,19 +229,8 @@ process run_differential_expression {
         echo "run_differential_expression: ${process_info}"
         echo "publish_directory: ${outdir}"
         rm -fr plots
-        generate_experiment_covariates.py \
-            --h5_anndata ${anndata} \
-            --experiment_id "${experiment_id}" \
-            --proportion_covariate_column "${prop_cov_col}" \
-            --out_file tmp_anndata.h5ad
-        convert_h5ad_R.py \
-            --h5ad_file tmp_anndata.h5ad \
-            --variable_target "${variable_target}" \
-            --cell_label_column "${cell_label_column}" \
-            --cell_label "${cell_label}" \
-            --output_dir de_input
         011-run_differential_expression.R \
-            --input_dir de_input \
+            --input_dir ${de_input} \
             --cell_label_column "${cell_label_column}" \
             --cell_label "${cell_label}" \
             --experiment_key "${experiment_id}" \
@@ -182,7 +247,6 @@ process run_differential_expression {
         mkdir plots
         mv *pdf plots/ 2>/dev/null || true
         mv *png plots/ 2>/dev/null || true
-        rm tmp_anndata.h5ad
         """
 }
 
@@ -204,14 +268,12 @@ process run_differential_expression_bulk {
 
     input:
         val(outdir_prev)
-        path(anndata)
         val(cell_label_column)
         val(experiment_id)
         val(mean_cp10k_filter)
         val(bulk_count_threshold)
         val(sample_frac_threshold)
-        each cell_label
-        each model
+        tuple(val(cell_label), path(de_input), val(model))
 
     output:
         val(outdir, emit: outdir)
@@ -275,7 +337,12 @@ process run_differential_expression_bulk {
         }
         outdir = "${outdir_prev}/differential_expression/${variable_target_clean}"
         outdir = "${outdir}/cell_label=${cell_label}"
-        outdir = "${outdir}/method=${model.method}___formula=${formula_clean}"
+        // NOTE: deliberately not including formula_clean here -- for models
+        // expanded from target_x_model_matrix, the formula string contains
+        // every covariate name concatenated together and can exceed the
+        // filesystem's max filename length (target_variable, already in
+        // the outdir path above, is what actually distinguishes each run).
+        outdir = "${outdir}/method=${model.method}"
         // Sort out any variables that need to be cast
         cmd__varcast = ""
         if (model.variable_discrete != "") {  // add disc cov call
@@ -307,19 +374,8 @@ process run_differential_expression_bulk {
         echo "run_differential_expression_bulk: ${process_info}"
         echo "publish_directory: ${outdir}"
         rm -fr plots
-        generate_experiment_covariates.py \
-            --h5_anndata ${anndata} \
-            --experiment_id "${experiment_id}" \
-            --proportion_covariate_column "${prop_cov_col}" \
-            --out_file tmp_anndata.h5ad
-        convert_h5ad_R.py \
-            --h5ad_file tmp_anndata.h5ad \
-            --variable_target "${variable_target}" \
-            --cell_label_column "${cell_label_column}" \
-            --cell_label "${cell_label}" \
-            --output_dir de_input
         011-run_differential_expression_bulk.R \
-            --input_dir de_input \
+            --input_dir ${de_input} \
             --cell_label_column "${cell_label_column}" \
             --cell_label "${cell_label}" \
             --experiment_key "${experiment_id}" \
@@ -338,7 +394,6 @@ process run_differential_expression_bulk {
         mkdir plots
         mv *pdf plots/ 2>/dev/null || true
         mv *png plots/ 2>/dev/null || true
-        rm tmp_anndata.h5ad
         """
 }
 
@@ -828,31 +883,77 @@ workflow wf__differential_expression {
             //     row[0]
             // )}
 
+        // add_experiment_covariates computes the *_proportion__autogen /
+        // proportion_covariate_keys__autogen columns, which are only ever
+        // read downstream when a model sets include_proportion_covariates.
+        // Skip it entirely (and feed prep_expression the original anndata
+        // directly) unless at least one model actually needs it.
+        models_needing_proportion_covariates = model.value.findAll {
+            it.include_proportion_covariates
+        }
+        if (models_needing_proportion_covariates.size() > 0) {
+            // All such models must share the same proportion_covariate_column:
+            // it is baked into add_experiment_covariates, run once for the
+            // whole workflow, rather than once per model.
+            proportion_covariate_columns = models_needing_proportion_covariates.collect {
+                it.proportion_covariate_column
+            }.unique()
+            if (proportion_covariate_columns.size() > 1) {
+                error(
+                    "All models in models.value with include_proportion_covariates " +
+                    "must share the same proportion_covariate_column so that " +
+                    "add_experiment_covariates can run once instead of once per " +
+                    "model. Found: ${proportion_covariate_columns}"
+                )
+            }
+            proportion_covariate_column = proportion_covariate_columns[0]
+
+            // Compute per-experiment proportion covariates once for the
+            // whole run (independent of cell_label and model).
+            add_experiment_covariates(
+                anndata,
+                experiment_key,
+                proportion_covariate_column
+            )
+            prep_expression_input = add_experiment_covariates.out.anndata
+        } else {
+            prep_expression_input = anndata
+        }
+
+        // Build the per-cell-type expression matrices once per cell type
+        // (independent of model/target variable).
+        prep_expression(
+            prep_expression_input,
+            anndata_cell_label,
+            cell_labels  // run for all clusters for run time
+        )
+
+        // Cross each (cell_label, de_input) pair with every model, so
+        // run_differential_expression(_bulk) runs once per combination
+        // without redoing any of the shared prep work above.
+        de_input_x_model = prep_expression.out.de_input.combine(
+            Channel.fromList(model.value)
+        )
+
         // Run DGE
         if (model.bulk_or_singlecell == "bulk") {
             run_differential_expression_bulk(
                 outdir,
-                anndata,
                 anndata_cell_label,
                 experiment_key,
                 model.mean_cp10k_filter,
                 model.bulk_count_threshold,
                 model.sample_frac_threshold,
-                // '1',  // just run on first cluster for development
-                cell_labels,  // run for all clusters for run time
-                model.value
+                de_input_x_model
             )
             de_results = run_differential_expression_bulk.out.results
         } else {
             run_differential_expression(
                 outdir,
-                anndata,
                 anndata_cell_label,
                 experiment_key,
                 model.mean_cp10k_filter,
-                // '1',  // just run on first cluster for development
-                cell_labels,  // run for all clusters for run time
-                model.value
+                de_input_x_model
             )
             de_results = run_differential_expression.out.results
         }
@@ -892,7 +993,7 @@ workflow wf__differential_expression {
             }
             .flatMap()
             .map {  entry ->
-                combined_data = [entry.key, [], []]
+                def combined_data = [entry.key, [], []]
                 entry.value.each {
                     combined_data[1].add(it[0])
                     combined_data[2].add(it[1])
@@ -960,7 +1061,7 @@ workflow wf__differential_expression {
                 }
                 .flatMap()
                 .map {  entry ->
-                    combined_data = [entry.key, [], []]
+                    def combined_data = [entry.key, [], []]
                     entry.value.each {
                         combined_data[1].add(it[0])
                         combined_data[2].add(it[1])

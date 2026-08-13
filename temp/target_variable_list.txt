@@ -1,1 +1,3 @@
-Carrier
+ZNF419_LoF_carrier
+ZNF480_LoF_carrier
+ZNF681_LoF_carrier

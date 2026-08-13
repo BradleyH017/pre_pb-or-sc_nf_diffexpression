@@ -3,7 +3,7 @@ experiment_key_column:
     value: 'pool_participant'
 anndata_cell_label:
     description: 'Anndata cell label column in obs slot.'
-    value: 'IBDverse_eqtl:Category'
+    value: 'Celltypist:IBDverse_eqtl:predicted_labels'
 differential_expression:
     run_process: true
     # If false, skip all diagnostic/comparison plotting steps (per-model DGE
@@ -45,7 +45,7 @@ differential_expression:
             All covariates in formula should be listed in either
                 variable_continuous or variable_discrete.'
         mean_cp10k_filter: 1
-        bulk_or_singlecell: 'single_cell' # 'single_cell' or 'bulk'. If
+        bulk_or_singlecell: 'single_cell' # Refers to the INPUT data only. 'single_cell' or 'bulk'. If
             # 'bulk', run_differential_expression_bulk is used instead of
             # run_differential_expression: in addition to the mean_cp10k_filter
             # cutoff above, genes are only retained if they have counts >
