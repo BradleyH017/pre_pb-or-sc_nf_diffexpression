@@ -84,6 +84,17 @@ optionList <- list(
                         averages."
   ),
 
+  optparse::make_option(c("--min_obs_per_group"),
+                        type = "integer",
+                        default = 3,
+                        help = "For interaction targets (variable_target
+                        containing ':'), the minimum number of observations
+                        (samples if pseudobulk/bulk, cells otherwise) required
+                        in every combination of the interacting terms. If any
+                        combination has fewer, the test is skipped and no
+                        results are written. Set to 0 to disable."
+  ),
+
   optparse::make_option(c("-y", "--pre_filter_genes"),
                         action = "store_true",
                         default = FALSE,
@@ -663,6 +674,58 @@ if (pseudobulk == "pseudobulk") {
 } else {
   # Mean impute continuous_covs per cell
   metadata <- mean_impute_nan_numeric(metadata, continuous_covs)
+}
+
+
+## Minimum observations per interaction group
+## For an interaction target (e.g. disease_status:dosage), every combination of
+## the interacting terms must have >= min_obs_per_group observations, else skip.
+min_obs_per_group <- arguments$options$min_obs_per_group
+interaction_target <- arguments$options$variable_target
+if (grepl(":", interaction_target, fixed = TRUE) && min_obs_per_group > 0) {
+  obs_type <- ifelse(pseudobulk == "pseudobulk", "samples", "cells")
+  int_terms <- strsplit(interaction_target, split = ":", fixed = TRUE)[[1]]
+  missing_terms <- setdiff(int_terms, colnames(metadata))
+  if (length(missing_terms) > 0) {
+    stop(sprintf("Interaction terms not found in metadata: %s",
+                 paste(missing_terms, collapse = ", ")))
+  }
+
+  # Values of each term: specified discrete levels if given, else observed
+  term_values <- lapply(int_terms, function(t) {
+    if (t %in% names(discrete_levels)) {
+      discrete_levels[[t]]
+    } else {
+      sort(unique(metadata[[t]][!is.na(metadata[[t]])]))
+    }
+  })
+  names(term_values) <- int_terms
+  n_values <- sapply(term_values, length)
+
+  if (any(n_values > 10)) {
+    cat(sprintf(paste("min_obs_per_group: skipping check, term(s) %s have >10",
+                      "unique values (treated as truly continuous).\n"),
+                paste(names(n_values)[n_values > 10], collapse = ", ")))
+  } else {
+    # Count observations in every combination (absent combinations count as 0)
+    group_grid <- expand.grid(term_values, stringsAsFactors = FALSE)
+    grid_keys <- do.call(paste, c(lapply(group_grid, as.character), sep = " | "))
+    obs_keys <- do.call(paste, c(lapply(metadata[int_terms], as.character), sep = " | "))
+    group_grid$n_obs <- as.integer(table(factor(obs_keys, levels = grid_keys)))
+
+    cat(sprintf("Observations (%s) per combination of %s:\n",
+                obs_type, paste(int_terms, collapse = " x ")))
+    print(group_grid, row.names = FALSE)
+
+    too_small <- group_grid$n_obs < min_obs_per_group
+    if (any(too_small)) {
+      cat(sprintf(paste("Skipping test: %s / %s combinations have fewer than",
+                        "%s %s (min_obs_per_group). No results written.\n"),
+                  sum(too_small), nrow(group_grid), min_obs_per_group, obs_type))
+      quit(save = "no", status = 0)
+    }
+    cat(sprintf("All combinations have >= %s %s.\n", min_obs_per_group, obs_type))
+  }
 }
 
 

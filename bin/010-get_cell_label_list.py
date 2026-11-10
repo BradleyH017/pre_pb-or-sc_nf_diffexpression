@@ -2,8 +2,17 @@
 
 
 import argparse
+import h5py
 import numpy as np
-import scanpy as sc
+
+# read_elem has moved between anndata versions
+try:
+    from anndata.io import read_elem  # anndata >= 0.11
+except ImportError:
+    try:
+        from anndata.experimental import read_elem  # anndata 0.8-0.10
+    except ImportError:
+        from anndata._io.specs import read_elem  # older
 
 
 def main():
@@ -32,10 +41,16 @@ def main():
 
     options = parser.parse_args()
 
-    # Load the AnnData file
-    adata = sc.read_h5ad(filename=options.h5)
+    # Read only obs (X, layers, obsm etc. are never loaded into memory)
+    with h5py.File(options.h5, "r") as f:
+        obs = read_elem(f["obs"])
 
-    np_array = np.sort(adata.obs[options.cell_label].unique().astype(str))
+    if options.cell_label not in obs.columns:
+        raise KeyError(
+            f"{options.cell_label} not in obs. Available columns: {list(obs.columns)}"
+        )
+
+    np_array = np.sort(obs[options.cell_label].unique().astype(str))
     np.savetxt('cell_labels.csv', np_array, fmt='%s')
 
 

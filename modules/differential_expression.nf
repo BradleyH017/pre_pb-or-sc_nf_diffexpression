@@ -119,7 +119,9 @@ process run_differential_expression {
     echo echo_mode       // echo output from script
 
     publishDir  path: "${outdir}",
-                saveAs: {filename -> filename.replaceAll("${runid}-", "")},
+                // Pseudobulk matrices are only published if model.publish_pseudobulk is true
+                saveAs: {filename -> (!publish_pseudobulk && filename.contains("_pseudobulk_")) ?
+                    null : filename.replaceAll("${runid}-", "")},
                 mode: "${task.publish_mode}",
                 overwrite: "true"
 
@@ -186,6 +188,9 @@ process run_differential_expression {
         if (model.pre_filter_genes) {
             cmd__options = "--pre_filter_genes"
         }
+        min_obs_per_group = model.containsKey("min_obs_per_group") ? model.min_obs_per_group : 3
+        cmd__options = "${cmd__options} --min_obs_per_group ${min_obs_per_group}"
+        publish_pseudobulk = model.containsKey("publish_pseudobulk") ? model.publish_pseudobulk : false
         if (model.include_proportion_covariates) {
             cmd__options = "${cmd__options} --include_proportion_covariates"
             formula_clean = "${formula_clean}__proportion_covs-${prop_cov_col}"
@@ -262,7 +267,9 @@ process run_differential_expression_bulk {
     echo echo_mode       // echo output from script
 
     publishDir  path: "${outdir}",
-                saveAs: {filename -> filename.replaceAll("${runid}-", "")},
+                // Pseudobulk matrices are only published if model.publish_pseudobulk is true
+                saveAs: {filename -> (!publish_pseudobulk && filename.contains("_pseudobulk_")) ?
+                    null : filename.replaceAll("${runid}-", "")},
                 mode: "${task.publish_mode}",
                 overwrite: "true"
 
@@ -331,6 +338,9 @@ process run_differential_expression_bulk {
         if (model.pre_filter_genes) {
             cmd__options = "--pre_filter_genes"
         }
+        min_obs_per_group = model.containsKey("min_obs_per_group") ? model.min_obs_per_group : 3
+        cmd__options = "${cmd__options} --min_obs_per_group ${min_obs_per_group}"
+        publish_pseudobulk = model.containsKey("publish_pseudobulk") ? model.publish_pseudobulk : false
         if (model.include_proportion_covariates) {
             cmd__options = "${cmd__options} --include_proportion_covariates"
             formula_clean = "${formula_clean}__proportion_covs-${prop_cov_col}"

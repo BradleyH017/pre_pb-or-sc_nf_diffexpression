@@ -8,7 +8,7 @@
 # rm trace.txt.*;
 
 # SPECIFY ANNDATA
-ANNDATA_PATH="/lustre/scratch125/humgen/projects_v2/ibdresponse/analysis/bradley_analysis/archetypal_analysis_from_mrvi/results/objects/adata_plus_archetypes.h5ad"
+ANNDATA_PATH="/lustre/scratch127/humgen/projects_v2/sc-eqtl-ibd/analysis/bradley_analysis/IBDverse/Dart_BTNLs/input/h5ad_chr5:181005024:T:G_ti.h5ad"
 
 # Add Singularity to path
 # PATH=$PATH:/software/singularity/v3.10.0/bin
